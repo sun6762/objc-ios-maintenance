@@ -108,4 +108,4 @@ python3 scripts/scan_objc_risks.py /path/to/YourProject --format json --max-find
 
 ## License
 
-如果你准备公开发布，建议补充一个明确的开源许可证，例如 MIT License。
+本项目使用 [MIT License](LICENSE)。
