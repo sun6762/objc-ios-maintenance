@@ -1,0 +1,260 @@
+#!/usr/bin/env python3
+"""扫描 Objective-C iOS 项目中的高风险写法。
+
+输出结果只是 review 线索，不代表确定缺陷。命中后应结合调用上下文人工判断。
+"""
+
+from __future__ import annotations
+
+import argparse
+from dataclasses import dataclass
+import json
+from pathlib import Path
+import re
+import sys
+from typing import Iterable
+
+
+SOURCE_EXTENSIONS = {".h", ".m", ".mm"}
+DEFAULT_EXCLUDED_DIRS = {
+    ".git",
+    "Pods",
+    "Carthage",
+    "DerivedData",
+    "build",
+    ".build",
+    "node_modules",
+}
+
+LEVEL_ORDER = {"info": 0, "warning": 1, "error": 2}
+
+
+@dataclass(frozen=True)
+class Rule:
+    category: str
+    level: str
+    pattern: re.Pattern[str]
+    message: str
+    window: int = 1
+
+
+RULES = [
+    Rule("threading", "error", re.compile(r"dispatch_sync\s*\(\s*dispatch_get_main_queue\s*\("), "主线程调用时会死锁，UI 更新通常改为 dispatch_async 或重新设计同步依赖。"),
+    Rule("threading", "warning", re.compile(r"performSelector\s*:"), "动态 selector 需要确认 respondsToSelector 和方法签名，优先使用协议或类型化调用。", window=3),
+    Rule("threading", "warning", re.compile(r"objc_msgSend"), "objc_msgSend 必须使用与真实方法完全匹配的函数指针签名。"),
+    Rule("async", "warning", re.compile(r"dataWithContentsOfURL\s*:"), "疑似同步网络/文件读取，避免在主线程或滚动热路径调用。"),
+    Rule("async", "warning", re.compile(r"stringWithContentsOfURL\s*:"), "疑似同步读取 URL 内容，避免阻塞主线程。"),
+    Rule("async", "warning", re.compile(r"sendSynchronousRequest\s*:"), "同步网络请求会阻塞线程，启动和 UI 路径应替换为异步请求。"),
+    Rule("network", "info", re.compile(r"(?:data|download|upload)TaskWith(?:URL|Request)\s*:"), "确认请求 owner、取消路径、回调队列和旧结果丢弃逻辑。", window=3),
+    Rule("network", "info", re.compile(r"backgroundSessionConfigurationWithIdentifier\s*:"), "后台 URLSession 适合文件上传/下载，确认 delegate、文件型 upload 和 force-quit 边界。", window=3),
+    Rule("network", "warning", re.compile(r"NSURLConnection"), "NSURLConnection 是旧网络 API，维护时确认同步请求、取消、回调队列和迁移边界。"),
+    Rule("network", "info", re.compile(r"\[NSURLSession\s+sharedSession\]"), "生产网络层若需要超时、缓存、delegate 或连通性策略，应考虑注入配置好的 NSURLSession。"),
+    Rule("network", "info", re.compile(r"\bresume\s*\]"), "确认 NSURLSessionTask 不会重复 resume，且页面退出或条件变化时可取消。"),
+    Rule("memory", "warning", re.compile(r"@property\s*\([^)]*\b(?:strong|retain)\b[^)]*\)\s*[^;]*\(\s*\^"), "block 属性必须使用 copy，strong/retain 不能表达 block 从栈复制到堆的语义。", window=3),
+    Rule("memory", "warning", re.compile(r"@property\s*\([^)]*\b(?:strong|retain)\b[^)]*\)\s*[^;]*(?:delegate|dataSource)\b", re.IGNORECASE), "delegate/dataSource 通常应为 weak，strong/retain 容易形成循环引用。", window=3),
+    Rule("memory", "warning", re.compile(r"scheduledTimerWithTimeInterval\s*:"), "NSTimer 会持有 target，确认 invalidate 路径或 weak proxy。"),
+    Rule("memory", "warning", re.compile(r"displayLinkWithTarget\s*:"), "CADisplayLink 会持有 target，确认 invalidate 路径或 weak proxy。"),
+    Rule("memory", "warning", re.compile(r"addObserverForName\s*:"), "block observer 会返回 token，确认保存并移除 token。", window=3),
+    Rule("runtime", "warning", re.compile(r"addObserver\s*:.*forKeyPath\s*:"), "KVO 需要唯一 context，并确认所有 teardown 路径 remove 平衡。", window=5),
+    Rule("runtime", "warning", re.compile(r"removeObserver\s*:.*forKeyPath\s*:"), "KVO remove 前确认 observation 已添加且只移除一次。", window=5),
+    Rule("runtime", "warning", re.compile(r"\bvalueForKey(?:Path)?\s*:"), "KVC key 若来自动态输入可能抛异常，优先白名单或类型化访问。", window=3),
+    Rule("runtime", "warning", re.compile(r"\bsetValue\s*:.*forKey(?:Path)?\s*:"), "KVC setValue 需处理 nil、标量和未知 key 边界。", window=5),
+    Rule("runtime", "warning", re.compile(r"method_exchangeImplementations\s*\("), "swizzling 会改变全局行为，确认 dispatch_once、签名兼容和原实现调用。"),
+    Rule("rendering", "warning", re.compile(r"masksToBounds\s*=\s*YES"), "masksToBounds 可能触发裁剪/离屏问题；若同层还有阴影应拆分内外层。"),
+    Rule("rendering", "warning", re.compile(r"shouldRasterize\s*=\s*YES"), "rasterize 只适合复杂但静态内容，确认 rasterizationScale 和缓存失效成本。"),
+    Rule("rendering", "info", re.compile(r"shadowOpacity\s*="), "设置阴影时检查是否有稳定 shadowPath，尤其是列表 cell。"),
+    Rule("layout", "warning", re.compile(r"(?:mas_)?remakeConstraints\s*:"), "remakeConstraints 会移除并重建约束，避免在滚动热路径高频调用。", window=3),
+    Rule("layout", "info", re.compile(r"activateConstraints\s*:"), "确认固定约束只创建一次，不在 configure/layoutSubviews 中重复创建。"),
+    Rule("layout", "info", re.compile(r"layoutSubviews"), "确认 layoutSubviews 中没有重复添加约束、同步 IO 或复杂计算。"),
+    Rule("layout", "info", re.compile(r"layoutIfNeeded\s*\]"), "确认 layoutIfNeeded 不在循环或滚动热路径中高频触发。"),
+    Rule("scrolling", "warning", re.compile(r"\breloadData\s*\]"), "reloadData 命中滚动热路径时可能卡顿；确认是否可改为局部刷新或 diff。"),
+    Rule("scrolling", "info", re.compile(r"dequeueReusableCellWithIdentifier\s*:"), "确认 reuse identifier 稳定、已 register，且 cell 配置幂等。", window=3),
+    Rule("scrolling", "info", re.compile(r"estimatedRowHeight\s*="), "确认 estimatedRowHeight 与高度策略匹配，偏差过大会导致滚动条跳动和布局修正。"),
+    Rule("scrolling", "info", re.compile(r"prefetch(?:Rows|Items)AtIndexPaths\s*:"), "prefetch 必须只做可取消的预热工作，避免 completion 直接更新 UI。", window=3),
+    Rule("crash", "warning", re.compile(r"\bobjectAtIndexedSubscript\s*:"), "数组下标访问需要边界保护，尤其是异步更新或服务端数据变化后。"),
+    Rule("crash", "warning", re.compile(r"objectAtIndex\s*:"), "数组访问需要边界检查，尤其是服务端数据或异步更新后。"),
+    Rule("crash", "warning", re.compile(r"objectForKey\s*:"), "字典值来自外部数据时需要类型校验，避免后续 unrecognized selector。"),
+    Rule("crash", "warning", re.compile(r"performBatchUpdates\s*:"), "列表批量更新前后数据源数量必须和 insert/delete/reload 操作一致。", window=3),
+    Rule("crash", "info", re.compile(r"beginUpdates|endUpdates"), "UITableView begin/end updates 需要先更新数据源，并保证 indexPath 与数量变化一致。"),
+]
+
+
+@dataclass(frozen=True)
+class Finding:
+    path: Path
+    line_number: int
+    end_line_number: int
+    rule: Rule
+    text: str
+
+
+def iter_source_files(root: Path, include_tests: bool) -> Iterable[Path]:
+    if root.is_file():
+        if root.suffix in SOURCE_EXTENSIONS:
+            yield root
+        return
+
+    for path in root.rglob("*"):
+        if path.is_dir():
+            continue
+        if path.suffix not in SOURCE_EXTENSIONS:
+            continue
+        parts = set(path.parts)
+        if parts & DEFAULT_EXCLUDED_DIRS:
+            continue
+        if not include_tests and any(part.lower().endswith("tests") or part.lower().endswith("uitests") for part in path.parts):
+            continue
+        yield path
+
+
+def strip_block_comments(lines: list[str]) -> list[str]:
+    cleaned: list[str] = []
+    in_block_comment = False
+    for line in lines:
+        result = []
+        index = 0
+        while index < len(line):
+            if in_block_comment:
+                end = line.find("*/", index)
+                if end == -1:
+                    index = len(line)
+                    continue
+                in_block_comment = False
+                index = end + 2
+                continue
+
+            start = line.find("/*", index)
+            line_comment = line.find("//", index)
+            if line_comment != -1 and (start == -1 or line_comment < start):
+                result.append(line[index:line_comment])
+                index = len(line)
+                continue
+            if start == -1:
+                result.append(line[index:])
+                index = len(line)
+                continue
+            result.append(line[index:start])
+            in_block_comment = True
+            index = start + 2
+        cleaned.append("".join(result))
+    return cleaned
+
+
+def normalized_window(lines: list[str], start_index: int, window: int) -> tuple[str, int]:
+    selected = lines[start_index:start_index + window]
+    non_empty = [line.strip() for line in selected if line.strip()]
+    text = " ".join(non_empty)
+    text = re.sub(r"\s+", " ", text)
+    end_line = start_index + max(len(selected), 1)
+    return text, end_line
+
+
+def scan_file(path: Path, rules: list[Rule], min_level: str) -> Iterable[Finding]:
+    min_order = LEVEL_ORDER[min_level]
+    try:
+        raw_lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError as exc:
+        print(f"无法读取 {path}: {exc}", file=sys.stderr)
+        return
+
+    lines = strip_block_comments(raw_lines)
+    emitted: set[tuple[int, str, str]] = set()
+
+    for line_number, line in enumerate(lines, start=1):
+        stripped = line.strip()
+        if not stripped:
+            continue
+        for rule in rules:
+            if LEVEL_ORDER[rule.level] < min_order:
+                continue
+            search_text, end_line = normalized_window(lines, line_number - 1, rule.window)
+            if not search_text:
+                continue
+            key = (line_number, rule.category, rule.message)
+            if key in emitted:
+                continue
+            if rule.pattern.search(search_text):
+                emitted.add(key)
+                yield Finding(path, line_number, end_line, rule, stripped)
+
+
+def select_rules(category: str | None) -> list[Rule]:
+    if category is None:
+        return RULES
+    return [rule for rule in RULES if rule.category == category]
+
+
+def parse_args(argv: list[str]) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description="扫描 Objective-C iOS 项目中的性能、崩溃和运行时风险模式。")
+    parser.add_argument("path", type=Path, help="要扫描的项目目录或单个 .h/.m/.mm 文件")
+    parser.add_argument("--category", choices=sorted({rule.category for rule in RULES}), help="只扫描指定分类")
+    parser.add_argument("--min-level", choices=sorted(LEVEL_ORDER, key=LEVEL_ORDER.get), default="info", help="最低输出级别")
+    parser.add_argument("--format", choices=("text", "json"), default="text", help="输出格式")
+    parser.add_argument("--max-findings", type=int, default=0, help="最多输出多少条；0 表示不限制")
+    parser.add_argument("--include-tests", action="store_true", help="包含 Tests / UITests 目录")
+    parser.add_argument("--fail-on-finding", action="store_true", help="发现风险提示时返回非 0 状态码，适合接入 CI")
+    return parser.parse_args(argv)
+
+
+def finding_to_dict(root: Path, finding: Finding) -> dict[str, object]:
+    relative = finding.path.relative_to(root) if root.is_dir() else Path(finding.path.name)
+    return {
+        "path": str(relative),
+        "line": finding.line_number,
+        "end_line": finding.end_line_number,
+        "category": finding.rule.category,
+        "level": finding.rule.level,
+        "message": finding.rule.message,
+        "text": finding.text,
+    }
+
+
+def print_findings(root: Path, findings: list[Finding], output_format: str) -> None:
+    if output_format == "json":
+        payload = {
+            "count": len(findings),
+            "findings": [finding_to_dict(root, finding) for finding in findings],
+            "note": "这些结果是人工 review 线索，不代表确定缺陷。",
+        }
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+        return
+
+    for finding in findings:
+        relative = finding.path.relative_to(root) if root.is_dir() else finding.path.name
+        line_range = f"{finding.line_number}" if finding.end_line_number == finding.line_number else f"{finding.line_number}-{finding.end_line_number}"
+        print(f"[{finding.rule.level}] {finding.rule.category} {relative}:{line_range}")
+        print(f"  {finding.rule.message}")
+        print(f"  {finding.text}")
+
+    print()
+    print(f"共发现 {len(findings)} 条风险提示。请结合上下文人工复核，不要机械替换。")
+
+
+def main(argv: list[str]) -> int:
+    args = parse_args(argv)
+    root = args.path.expanduser().resolve()
+    if not root.exists():
+        print(f"路径不存在: {root}", file=sys.stderr)
+        return 2
+
+    rules = select_rules(args.category)
+    findings: list[Finding] = []
+    for source_file in iter_source_files(root, include_tests=args.include_tests):
+        findings.extend(scan_file(source_file, rules, args.min_level))
+        if args.max_findings > 0 and len(findings) >= args.max_findings:
+            findings = findings[:args.max_findings]
+            break
+
+    if not findings:
+        if args.format == "json":
+            print(json.dumps({"count": 0, "findings": [], "note": "未发现匹配的风险模式。"}, ensure_ascii=False, indent=2))
+        else:
+            print("未发现匹配的风险模式。")
+        return 0
+
+    print_findings(root, findings, args.format)
+    return 1 if args.fail_on_finding else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

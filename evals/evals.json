@@ -1,0 +1,120 @@
+{
+  "skill_name": "objc-ios-maintenance",
+  "evals": [
+    {
+      "id": 0,
+      "name": "retain-cycle-page-not-release",
+      "prompt": "使用 $objc-ios-maintenance 审查一个 Objective-C 页面退出后不释放的问题。代码里有 block 属性、NSTimer、NSNotification block observer 和 delegate。请给出排查顺序、可能原因、修复策略和验证方式。",
+      "expected_output": "一个生命周期边界明确的内存排查方案，能区分循环引用、未取消任务、observer/token 未移除和缓存保留，并要求用 Memory Graph 或 Allocations 验证。",
+      "assertions": [
+        "要求先定义对象应释放的边界，例如 pop/dismiss 后并等待合法异步清理完成。",
+        "检查 block 属性是否 copy 且是否强捕获 self，并使用 weak/strong dance 或显式取消表达生命周期。",
+        "指出 NSTimer/CADisplayLink 会持有 target，weak proxy 不能替代 invalidate。",
+        "指出 block observer token 要保存并移除，delegate/dataSource 应为 weak。",
+        "区分真实泄漏、可达但废弃状态、缓存保留和短期峰值。",
+        "要求用 Memory Graph、Allocations Mark Generation 或 dealloc 验证同一对象/路径消失，而不是只看 RSS 下降。"
+      ]
+    },
+    {
+      "id": 1,
+      "name": "table-scrolling-jank-review",
+      "prompt": "使用 $objc-ios-maintenance 审查一个 UITableView 滚动掉帧问题。cell 中同步加载图片，在 configure 里 remakeConstraints，异步图片回调只检查 indexPath，圆角和阴影写在同一层，列表频繁 reloadData。请给出修复优先级。",
+      "expected_output": "一个按证据和热路径排序的滚动性能审查，覆盖复用、异步图片、预解码、约束复用、高度缓存、渲染分层和刷新策略。",
+      "assertions": [
+        "先要求用 Time Profiler、Core Animation 或 FPS 复现并确认瓶颈，不把所有问题归因于离屏渲染。",
+        "要求 cell 配置幂等，prepareForReuse 取消旧任务并重置 image、hidden、alpha、selected 等状态。",
+        "指出异步图片回调应检查稳定 model identifier，而不是只检查 indexPath。",
+        "要求图片按展示尺寸异步加载、后台解码并缓存，避免主线程同步读图。",
+        "要求固定约束只创建一次，状态变化使用 update/constant/active，避免滚动热路径 remakeConstraints。",
+        "要求圆角和阴影分层，阴影设置 shadowPath，动态 path 只在 bounds 变化时更新。",
+        "要求避免滚动中频繁全量 reloadData，优先局部刷新、批量更新或 diff。"
+      ]
+    },
+    {
+      "id": 2,
+      "name": "kvo-kvc-crash-boundary",
+      "prompt": "使用 $objc-ios-maintenance 审查一段 Objective-C 代码：服务端下发 key 后直接 setValue:forKey:，页面 addObserver 后在多个路径 removeObserver，observeValue 没有 context 判断。请指出崩溃边界和修复方式。",
+      "expected_output": "一个 KVC/KVO 崩溃边界分析，优先使用白名单和类型化访问，KVO 使用唯一 context 并保证 add/remove 平衡。",
+      "assertions": [
+        "说明 KVC 未知 key、nil 写入标量、动态 key 都可能抛异常。",
+        "要求服务端/配置 key 使用白名单映射，能类型化访问时不要继续 KVC。",
+        "要求 KVO 使用唯一 static context 指针，只处理自己的 context。",
+        "要求 teardown 路径确保 observation 只移除一次，避免移除未添加 observer。",
+        "说明 manual KVO 只在禁用自动通知或 mutation 不可见时使用，并要求 will/did 成对。",
+        "不建议用全局 swizzling 或 try/catch 吞掉 KVC/KVO 异常作为默认方案。"
+      ]
+    },
+    {
+      "id": 3,
+      "name": "objc-swift-interop-header-review",
+      "prompt": "使用 $objc-ios-maintenance 审查一个 Objective-C 与 Swift 混编方案：在公开 .h 里 import Product-Swift.h，集合没有 generics，API 没有 nullability，想重命名 selector 只为了 Swift 更好看。请给出修改建议。",
+      "expected_output": "一个兼顾 Objective-C 调用方和 Swift 导入质量的混编审查，避免头文件循环导入，并通过 nullability、generics、NS_SWIFT_NAME、NS_REFINED_FOR_SWIFT 改善 Swift 侧 API。",
+      "assertions": [
+        "指出公开 Objective-C 头文件不应 import 生成的 ProductModuleName-Swift.h，应在 .m 中按需 import。",
+        "要求头文件使用 NS_ASSUME_NONNULL_BEGIN/END，并标注真实 nullable 位置。",
+        "要求集合标注 lightweight generics，initializer/factory 使用 instancetype。",
+        "说明 bridging header 用于把 Objective-C 暴露给 Swift，framework 使用 module/umbrella header。",
+        "使用 NS_SWIFT_NAME 或 NS_REFINED_FOR_SWIFT 改善 Swift 导入，但不破坏既有 Objective-C selector 调用方。",
+        "要求把 .h 当作 API 契约，改动前搜索调用方。"
+      ]
+    },
+    {
+      "id": 4,
+      "name": "network-generation-cache-review",
+      "prompt": "使用 $objc-ios-maintenance 审查一个 Objective-C 列表网络层：搜索请求并发返回，旧结果覆盖新结果；同一图片 URL 被重复请求；缓存 key 只有 URL；失败后无限重试；页面退出后 task 没取消。请给出改造方案。",
+      "expected_output": "一个网络、缓存和异步时序改造方案，明确 owner、取消、generation token、in-flight 合并、缓存 key 和重试边界。",
+      "assertions": [
+        "要求每个请求有明确 owner，页面退出或条件变化时取消 task。",
+        "要求搜索、筛选、分页等乱序场景使用 generation token 或稳定 model identifier。",
+        "要求同一资源短时间多处请求时合并 in-flight request。",
+        "要求缓存 key 包含 URL、目标尺寸、scale、圆角、用户、语言、版本等影响结果的上下文。",
+        "要求重试有上限和退避，并只对幂等或明确可重试请求执行。",
+        "要求网络 completion 更新 UI 前切回主线程并确认页面/model/generation 仍匹配。"
+      ]
+    },
+    {
+      "id": 5,
+      "name": "static-risk-scan-usage",
+      "prompt": "使用 $objc-ios-maintenance 先盘点一个 Objective-C 项目的性能和崩溃风险。说明如何使用 scripts/scan_objc_risks.py，如何解释输出，以及为什么不能机械替换所有命中项。",
+      "expected_output": "一个静态巡检使用说明，能把脚本结果当成人工 review 线索，并说明分类扫描、warning 过滤、CI 失败开关和后续人工确认。",
+      "assertions": [
+        "给出 scan_objc_risks.py 的基本命令、--category、--min-level 和 --fail-on-finding 用法。",
+        "说明脚本是正则/启发式扫描，输出不是确定缺陷。",
+        "要求对每条命中结合调用路径、线程、生命周期和热路径人工判断。",
+        "说明性能风险要用 Instruments、Core Animation、Allocations 或实际复现验证。",
+        "说明接入 CI 时应先用 warning/error 和基线策略，避免 info 噪声阻塞开发。"
+      ]
+    },
+    {
+      "id": 6,
+      "name": "runtime-crash-guard-boundary",
+      "prompt": "使用 $objc-ios-maintenance 设计一个 Objective-C 旧项目的线上崩溃兜底方案。团队想用 runtime 完全转发、集合防崩溃分类和 KVO swizzling 一次性解决 unknown selector、数组越界、字典 nil、KVO 不平衡、野指针和 C++ 崩溃。请审查这个方案并给出边界。",
+      "expected_output": "一个强警告的兜底边界审查，明确 runtime guard 是非默认历史包袱止血方案，区分可兜底、可 swizzle 止血和不可 runtime 兜底的崩溃类型，并要求白名单、日志、灰度和回滚。",
+      "assertions": [
+        "明确说明 runtime 完全转发只能兜住部分 unknown selector，且 method signature 返回类型不匹配有 ABI 风险。",
+        "说明数组越界和字典 nil 不是消息转发问题，只能通过集合方法边界检查或高风险 Foundation swizzling 止血。",
+        "说明 KVO 不平衡优先修复 add/remove/context 生命周期，KVO swizzling 风险高，只能用于明确历史包袱兜底。",
+        "说明野指针、内存破坏、OOM 和 C/C++ 崩溃不能靠 Objective-C runtime guard 可靠兜底。",
+        "要求白名单业务类/方法、排除系统类和第三方 SDK、记录上下文、限频日志、灰度、远端开关和回滚。",
+        "强调 Debug 不应吞异常，兜底后仍要创建真实修复任务。"
+      ]
+    },
+    {
+      "id": 7,
+      "name": "beginner-uikit-safe-architecture",
+      "prompt": "使用 $objc-ios-maintenance 帮一个不熟 iOS 的新手从零写一个 Objective-C + UIKit 列表页，需要请求接口、解析 model、展示 UITableView，并尽量避免性能和崩溃问题。请给出架构、关键代码规则和验证方式。",
+      "expected_output": "一个新手安全层方案，默认使用保守 MVC + MVVM-lite 分层，覆盖 Model/Service/ViewModel/ViewController/Cell 职责、可取消网络、主线程 UI、cell 复用、输入校验和验证路径，并明确不默认使用 runtime/swizzling/manual KVO。",
+      "assertions": [
+        "识别这是新手或经验不明确场景，默认进入新手安全模式并优先给保守方案。",
+        "要求使用清晰分层，例如 Model、Service/APIClient、ViewModel/Presenter、ViewController、Cell，而不是把所有逻辑塞进 ViewController。",
+        "要求头文件使用 NS_ASSUME_NONNULL_BEGIN/END、nullable 和 lightweight generics，block 属性必须 copy，delegate/dataSource 使用 weak。",
+        "要求 service 返回 NSURLSessionDataTask 或 cancel token，completion 只调用一次，并明确或强制主线程回调以保护 UI 更新。",
+        "要求外部 JSON 在 model/service 层做类型检查和 nil 过滤，避免 NSNull、错误类型、数组越界或字典 nil 进入 UI 层。",
+        "要求 UITableView 注册稳定 reuse identifier，使用 dequeueReusableCellWithIdentifier:forIndexPath:，cell 配置幂等，prepareForReuse 重置状态并取消旧异步任务。",
+        "要求异步图片或请求结果检查稳定 model identifier 或 generation token，防止复用错图和旧请求覆盖新状态。",
+        "明确新手默认不使用全局 runtime crash guard、method swizzling、manual KVO、heavy associated object 或 @try/@catch 吞异常。",
+        "给出验证方式：空数据、错误态、慢网、快速进出页面、快速滚动、主线程检查和内存释放检查。"
+      ]
+    }
+  ]
+}
