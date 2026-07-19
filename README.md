@@ -142,8 +142,6 @@ python3 scripts/scan_objc_risks.py /path/to/YourProject --format json --max-find
 
 ## 后续计划
 
-- 增加 Masonry 布局模板。
-- 增加 SDWebImage 图片加载模板。
 - 增加更多真实旧项目审查案例。
 - 扩展静态扫描脚本的规则和输出格式。
 
