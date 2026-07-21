@@ -16,7 +16,7 @@
 ## 核心能力
 
 - **内存与所有权**：`strong` / `weak` / `copy` / `assign`、block 必须 `copy`、weak delegate、weak/strong dance。
-- **崩溃预防**：集合 nil/越界、KVC/KVO 崩溃、动态 selector、列表批量更新一致性、运行时兜底边界。
+- **崩溃治理**：崩溃分类、证据闭环、集合 nil/越界、KVC/KVO 崩溃、动态 selector、列表批量更新一致性、运行时兜底边界。
 - **UIKit 性能**：离屏渲染、圆角、阴影、mask、透明混合、`shouldRasterize`、cell 复用、滚动掉帧。
 - **异步与线程**：`NSError **`、completion handler、GCD、NSOperation、NSURLSession、主线程 UI 更新。
 - **Swift 混编**：bridging header、module、生成的 `-Swift.h`、nullability、generics、`NS_SWIFT_NAME`、`NS_REFINED_FOR_SWIFT`。
@@ -128,6 +128,7 @@ python3 scripts/scan_objc_risks.py /path/to/YourProject --format json --max-find
 
 - `assets/snippets/UIView+OCMPerformance.*`：显式调用的 UIView 渲染性能辅助分类。
 - `assets/snippets/OCMWeakProxy.*`：用于 timer / display link target 循环引用场景。
+- `assets/snippets/OCMCrashSafety.*`：用于集合边界、JSON 类型收敛和主线程 UI 回调的显式 helper。
 - `assets/templates/beginner-uikit/`：新手安全层的 Objective-C + UIKit 列表页模板，包含 Model、Service、ViewModel、Cell、ViewController。
 
 复制模板到业务项目后，建议把 `OCM` 前缀替换为项目自己的前缀，避免 category 或类名冲突。

@@ -5,6 +5,10 @@
 ## 快速目录
 
 - 总原则
+- 启用决策模板
+- 远端配置建议
+- 日志字段建议
+- 灰度与回滚流程
 - 可 runtime 兜底：unknown selector
 - 可 swizzle 止血但不推荐默认启用：集合越界与 nil
 - 可 swizzle 止血但高风险：KVO 不平衡
@@ -24,6 +28,61 @@
 - 每次兜底都记录 class、selector、参数摘要、调用栈、线程和业务场景。
 - 有远端开关、灰度策略、限频日志和回滚方案。
 - 兜底后仍要创建真实修复任务，不能把吞异常当成完成。
+
+## 启用决策模板
+
+只有下面问题都能回答清楚，才进入 runtime guard 设计：
+
+| 问题 | 必须有的答案 |
+| --- | --- |
+| 要兜哪类崩溃？ | unknown selector、集合 nil/越界、KVO 不平衡等具体类型，不能写“全部崩溃”。 |
+| 证据是什么？ | 符号化 crash log、版本分布、崩溃量级、调用栈、最近变更和复现可能性。 |
+| 为什么不能直接修？ | 涉及发版周期、第三方输入、历史包袱或短期无法定位源头；同时要创建真实修复任务。 |
+| 影响范围多大？ | 明确类名、方法族、业务模块、版本、用户比例和排除对象。 |
+| 失败后如何降级？ | 返回 nil、跳过更新、reloadData、禁用入口或提示用户；不能让业务继续依赖损坏状态。 |
+| 如何关闭？ | 远端开关、版本回滚、灰度比例降为 0，且不依赖再次发版。 |
+
+如果任一项只能回答“暂不清楚”，不要上线 guard；先补日志、复现路径或静态扫描。
+
+## 远端配置建议
+
+runtime guard 至少需要这些配置维度：
+
+```json
+{
+  "enabled": false,
+  "sampleRate": 0.01,
+  "minAppVersion": "1.2.0",
+  "maxAppVersion": "1.2.9",
+  "guardTypes": ["unrecognized_selector"],
+  "classAllowlist": ["ACMEFeedCell", "ACMEProfileViewModel"],
+  "classDenylistPrefixes": ["NS", "UI", "CA", "WK", "_"],
+  "selectorAllowlist": ["refreshWithContext:", "updateWithModel:"],
+  "logLimitPerSession": 20
+}
+```
+
+配置默认值必须是关闭。远端配置拉取失败、解析失败或版本不匹配时，也必须关闭。
+
+## 日志字段建议
+
+每次兜底都记录足够反推源头的上下文，并做限频：
+
+- guard type：unknown selector、collection nil、collection bounds、KVO remove 等。
+- class、selector、keyPath、index、count、参数摘要。
+- 线程、调用栈、app 版本、系统版本、设备、用户分桶、开关版本。
+- 当前页面、业务场景、最近一次数据刷新或路由来源。
+- 降级动作：return nil、skip update、reloadData、disable feature 等。
+
+不要记录完整用户隐私数据、token、手机号、身份证、地址或原始请求体。需要关联业务数据时，使用脱敏 ID 或 hash。
+
+## 灰度与回滚流程
+
+1. Debug 和内部包保持 crash 或 assert，不吞异常。
+2. Release 首次只对极小比例用户打开，并限制版本、业务模块和类白名单。
+3. 同时观察崩溃率、兜底日志量、关键业务成功率、卡顿、内存和用户反馈。
+4. 如果兜底日志高频、业务指标下降或出现新崩溃，立即远端关闭。
+5. 每个兜底日志聚合成真实修复任务；修复发版后移除或关闭对应 guard。
 
 ## 可 runtime 兜底：unknown selector
 
@@ -201,7 +260,7 @@ C/C++ 崩溃不走 Objective-C 消息转发，例如：
 - 日志：记录崩溃类型、类名、selector、key/index、线程、调用栈、版本和开关状态。
 - 限频：避免高频异常造成日志风暴或性能问题。
 - 灰度：按版本、用户比例或远端配置启用。
-- 回滚：远端可关闭，不依赖发版。
+- 回滚：远端可关闭，不依赖发版；配置失败、版本不匹配或白名单为空时默认关闭。
 - 验证：Debug 不吞异常；Release 灰度后对比崩溃率、日志量和业务异常指标。
 
 ## 审查清单
