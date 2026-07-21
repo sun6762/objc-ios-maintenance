@@ -4,6 +4,10 @@
 
 ## 快速目录
 
+- 崩溃治理分层
+- 崩溃分类矩阵
+- 治理闭环
+- 优先级建议
 - 防崩溃原则
 - 集合与 nil
 - 类型校验
@@ -11,9 +15,52 @@
 - KVC / KVO
 - Selector 与动态调用
 - UIKit 主线程
+- 可复用 helper 模板
+- Review 示例
 - 不推荐全局吞异常
 - 可选运行时兜底
 - 审查清单
+
+## 崩溃治理分层
+
+崩溃治理不是单个“防崩溃工具”，而是一条从发现、归因、修复到验证的闭环。维护 Objective-C iOS 旧项目时，按下面顺序处理：
+
+1. 先拿证据：符号化崩溃日志、版本、设备、系统、线程栈、最近发布差异、用户路径和关键业务参数。
+2. 再做分类：判断崩溃属于数据边界、生命周期、线程、runtime、UIKit 状态一致性、内存所有权、底层 C/CF/C++ 或 OOM。
+3. 优先修源头：在 model/service/view model/view controller 的输入、状态和生命周期边界修复，不默认吞异常。
+4. 才做兜底：只有高频线上问题短期无法彻底修复时，才讨论白名单 runtime guard、灰度、日志和回滚。
+5. 最后防回归：补静态扫描规则、单元测试、手工复现步骤或线上指标观察。
+
+## 崩溃分类矩阵
+
+| 分类 | 常见现象 | 优先修复方向 | 证据与验证 |
+| --- | --- | --- | --- |
+| 数据边界 | 集合插入 `nil`、数组越界、`NSNull` 当字符串使用 | model/service 层类型收敛，构造集合前过滤，访问前检查 index | crash log、服务端 payload、缓存样本、`scripts/scan_objc_risks.py --category crash` |
+| UIKit 状态一致性 | table/collection batch update 崩溃、cell 复用错乱 | 数据源先变更且数量匹配；不确定 diff 时先 `reloadData`；异步回调用稳定 identifier 校验 | 复现路径、更新前后 count、indexPath、滚动状态 |
+| 生命周期 | 页面退出后回调、timer/display link/observer 未释放 | 明确 owner，页面消失或 dealloc 取消任务、移除 observer、invalidate timer | Memory Graph、dealloc 日志、Leaks、Zombies |
+| 线程与异步 | 后台线程更新 UI、主线程死锁、旧请求覆盖新状态 | UIKit 回主线程；避免主线程 `dispatch_sync`；generation token 防乱序 | Main Thread Checker、线程栈、请求时序日志 |
+| KVC/KVO/runtime | undefined key、KVO remove 不平衡、unknown selector | key 白名单、static context、add/remove 状态记录、协议替代动态 selector | exception reason、selector/keyPath、observer 生命周期 |
+| 所有权与桥接 | 野指针、double free、CF 对象泄漏或重复释放 | ARC 属性修饰符、避免 `assign` 对象、Create/Copy/Get bridge 审查 | Zombies、Address Sanitizer、Malloc Scribble、崩溃地址 |
+| 底层与资源 | C/C++ 越界、OOM、内存破坏 | 边界检查、RAII/智能指针、降低峰值内存和缓存上限 | ASan/UBSan/TSan、Jetsam 日志、内存曲线 |
+
+## 治理闭环
+
+处理每个崩溃时，记录一条简短闭环：
+
+- **分类**：属于哪一类崩溃，为什么。
+- **证据**：崩溃栈、输入样本、生命周期路径、线程或工具数据。
+- **根因**：哪个边界没有收敛，哪个状态不一致，或哪个所有权假设错误。
+- **修复**：最小改动位置，是否影响公开 `.h`、Swift 导入、调用方或 runtime 行为。
+- **验证**：测试、脚本扫描、手工复现、Instruments 或线上灰度指标。
+- **残留**：是否还有无法兜底的野指针、OOM、C/C++ 或第三方 SDK 风险。
+
+## 优先级建议
+
+- **P0**：高频线上崩溃、启动崩溃、支付/登录/核心链路崩溃、数据损坏或不可恢复状态。
+- **P1**：可复现但影响局部功能的崩溃、列表更新崩溃、页面退出后回调、明确的 KVO/KVC 边界问题。
+- **P2**：静态扫描命中的潜在风险、低频兜底日志、需要结合业务语义确认的问题。
+
+默认先修 P0/P1 的源头问题。P2 可以进入巡检和代码健康任务，不要因为低风险命中而做大范围重构。
 
 ## 防崩溃原则
 
@@ -137,6 +184,79 @@ dispatch_async(dispatch_get_main_queue(), ^{
 ```
 
 不要用 `dispatch_sync(dispatch_get_main_queue(), ...)` 包 UI 更新；如果当前已经在主线程会死锁。
+
+## 可复用 helper 模板
+
+如果业务项目缺少统一边界工具，可以参考或复制 `assets/snippets/OCMCrashSafety.h` 和 `assets/snippets/OCMCrashSafety.m`。复制后把 `OCM` 前缀替换为项目自己的前缀。
+
+该模板只覆盖局部显式调用：
+
+- `OCMDispatchAsyncOnMainQueue`：后台回调更新 UI 前回主线程。
+- `OCMObjectAtIndex`：数组越界返回 nil，让调用点处理空状态。
+- `OCMSetObjectIfValid`：字典写入前过滤 nil key/value 和 `NSNull`。
+- `OCMStringOrEmpty` / `OCMArrayOrEmpty` / `OCMDictionaryOrEmpty`：外部 JSON、缓存和配置进入 model 层前做类型收敛。
+
+不要把这些 helper 包成全局 category 自动替换系统行为；helper 的价值是让风险边界在调用点可见。
+
+## Review 示例
+
+示例一：服务端字段类型不稳定。
+
+```objc
+NSString *title = payload[@"title"];
+self.titleLabel.text = title;
+```
+
+风险：`title` 可能是 `NSNull`、`NSNumber` 或缺失，后续字符串方法可能触发 `unrecognized selector`。
+
+推荐改法：在 model 或解析层收敛类型，不让不可信 `id` 进入 UI 层。
+
+```objc
+NSString *title = OCMStringOrEmpty(payload[@"title"]);
+self.titleLabel.text = title.length > 0 ? title : @"--";
+```
+
+示例二：列表异步更新后继续使用旧 indexPath。
+
+```objc
+Item *item = self.items[indexPath.row];
+[self openItem:item];
+```
+
+风险：网络刷新、删除或批量更新后，`indexPath.row` 可能已经越界或指向不同 model。
+
+推荐改法：读取前检查边界；异步回调还要校验稳定 model identifier。
+
+```objc
+Item *item = OCMObjectAtIndex(self.items, indexPath.row);
+if (!item) {
+    return;
+}
+[self openItem:item];
+```
+
+示例三：URLSession completion 直接更新 UI。
+
+```objc
+completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    self.items = parsedItems;
+    [self.tableView reloadData];
+}
+```
+
+风险：URLSession completion 默认不在主线程，直接访问 UIKit 可能触发线程问题；页面退出后还可能更新无效 UI。
+
+推荐改法：解析完成后回主线程，并检查页面仍可更新。
+
+```objc
+OCMDispatchAsyncOnMainQueue(^{
+    if (!self.view.window) {
+        return;
+    }
+    self.items = parsedItems;
+    [self.tableView reloadData];
+});
+```
 
 ## 不推荐全局吞异常
 

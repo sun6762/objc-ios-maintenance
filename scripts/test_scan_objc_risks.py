@@ -35,6 +35,7 @@ def write_fixture(project: Path) -> None:
         @interface FeedController : UIViewController
         @property (nonatomic, strong) void (^completion)(void);
         @property (nonatomic, strong) id<UITableViewDelegate> delegate;
+        @property (nonatomic, assign) NSString *selectedTitle;
         @end
 
         @implementation FeedController
@@ -57,6 +58,15 @@ def write_fixture(project: Path) -> None:
                    [self.tableView reloadData];
                }];
             [task resume];
+
+            __unsafe_unretained id unsafeTarget = self.target;
+            NSArray *titles = [NSArray arrayWithObjects:self.selectedTitle, self.fallbackTitle, nil];
+            id item = self.items[indexPath.row];
+            [self.items addObject:item];
+            [self.payload setObject:self.selectedTitle forKey:@"title"];
+            [self.tableView deleteRowsAtIndexPaths:@[indexPath]
+                                  withRowAnimation:UITableViewRowAnimationAutomatic];
+            [self.user setValuesForKeysWithDictionary:self.payload];
         }
 
         @end
@@ -80,9 +90,18 @@ def main() -> int:
             raise AssertionError(text_result.stderr)
         assert_contains(text_result.stdout, "block 属性必须使用 copy")
         assert_contains(text_result.stdout, "delegate/dataSource 通常应为 weak")
+        assert_contains(text_result.stdout, "Objective-C 对象属性使用 assign")
+        assert_contains(text_result.stdout, "__unsafe_unretained 不会置 nil")
+        assert_contains(text_result.stdout, "URLSession completion 默认不在主线程")
         assert_contains(text_result.stdout, "KVO 需要唯一 context")
+        assert_contains(text_result.stdout, "KVO 使用 NULL context")
+        assert_contains(text_result.stdout, "批量 KVC 赋值需要先做 key 白名单")
         assert_contains(text_result.stdout, "remakeConstraints 会移除并重建约束")
         assert_contains(text_result.stdout, "reloadData 命中滚动热路径")
+        assert_contains(text_result.stdout, "可变参数集合构造遇到 nil")
+        assert_contains(text_result.stdout, "向字典写入 nil key/value 会崩溃")
+        assert_contains(text_result.stdout, "数组下标访问需要边界保护")
+        assert_contains(text_result.stdout, "列表局部更新必须保证数据源")
 
         json_result = run_scan(project, "--format", "json", "--category", "runtime")
         if json_result.returncode != 0:
@@ -90,6 +109,13 @@ def main() -> int:
         payload = json.loads(json_result.stdout)
         if payload["count"] < 1:
             raise AssertionError("JSON 输出应包含 runtime 命中")
+
+        crash_result = run_scan(project, "--format", "json", "--category", "crash", "--min-level", "warning")
+        if crash_result.returncode != 0:
+            raise AssertionError(crash_result.stderr)
+        crash_payload = json.loads(crash_result.stdout)
+        if crash_payload["count"] < 4:
+            raise AssertionError("JSON 输出应包含新增 crash 命中")
 
         failing_result = run_scan(project, "--min-level", "warning", "--fail-on-finding")
         if failing_result.returncode != 1:
