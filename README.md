@@ -2,7 +2,7 @@
 
 一个面向 Objective-C + UIKit 项目的 Agent Skill，可用于 Codex 和 Claude Code，帮助维护、审查、重构、调试和编写更安全的 OC iOS 代码。
 
-它重点关注旧项目里最容易出问题的地方：ARC 所有权、循环引用、KVO/KVC、Swift 混编、UIKit 性能、列表滚动、渲染卡顿、网络异步、内存泄漏和崩溃边界。
+它重点关注旧项目里最容易出问题的地方：ARC 所有权、循环引用、KVO/KVC、Swift 混编、UIKit 性能、列表滚动、渲染卡顿、网络异步、内存泄漏、野指针诊断、崩溃日志符号化、dSYM/MetricKit、OOM/Jetsam/watchdog、pre-main 启动拆解和崩溃边界。
 
 ## 适合场景
 
@@ -16,8 +16,8 @@
 ## 核心能力
 
 - **内存与所有权**：`strong` / `weak` / `copy` / `assign`、block 必须 `copy`、weak delegate、weak/strong dance。
-- **崩溃治理**：崩溃分类、证据闭环、集合 nil/越界、KVC/KVO 崩溃、动态 selector、列表批量更新一致性、运行时兜底边界。
-- **UIKit 性能**：离屏渲染、圆角、阴影、mask、透明混合、`shouldRasterize`、cell 复用、滚动掉帧。
+- **崩溃治理**：崩溃分类、证据闭环、崩溃日志符号化、dSYM/UUID 管理、MetricKit 接入、集合 nil/越界、KVC/KVO 崩溃、动态 selector、列表批量更新一致性、野指针诊断、OOM/Jetsam/FOOM/watchdog、运行时兜底边界。
+- **UIKit 性能**：离屏渲染、圆角、阴影、mask、透明混合、`shouldRasterize`、cell 复用、滚动掉帧、pre-main/`+load`/动态库启动拆解。
 - **异步与线程**：`NSError **`、completion handler、GCD、NSOperation、NSURLSession、主线程 UI 更新。
 - **Swift 混编**：bridging header、module、生成的 `-Swift.h`、nullability、generics、`NS_SWIFT_NAME`、`NS_REFINED_FOR_SWIFT`。
 - **诊断辅助**：提供 Objective-C 风险巡检脚本，帮助快速发现需要人工 review 的代码线索。
@@ -102,6 +102,9 @@ objc-ios-maintenance/
 │   ├── memory-ownership.md
 │   ├── scrolling-performance.md
 │   ├── uikit-rendering-performance.md
+│   ├── crash-symbolication-metrickit.md
+│   ├── dangling-pointer-diagnostics.md
+│   ├── oom-watchdog-diagnostics.md
 │   ├── runtime-crash-guard.md
 │   └── ...
 ├── assets/
@@ -139,7 +142,7 @@ python3 scripts/scan_objc_risks.py /path/to/YourProject --format json --max-find
 
 运行时兜底、method swizzling、集合 swizzling、KVO swizzling 属于**非默认方案**，只适合历史包袱项目的线上止血。使用前应具备崩溃日志、白名单、日志限频、灰度、远端开关和回滚方案。
 
-野指针、内存破坏、OOM、C/C++ 崩溃不能依靠 Objective-C runtime guard 可靠兜底。
+野指针、内存破坏、OOM、Jetsam、FOOM、watchdog、C/C++ 崩溃不能依靠 Objective-C runtime guard 可靠兜底。
 
 ## 后续计划
 

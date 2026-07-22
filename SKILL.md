@@ -1,6 +1,6 @@
 ---
 name: objc-ios-maintenance
-description: "维护、审查、重构、现代化或调试 Objective-C iOS 项目。用于 .h/.m/.mm、UIKit、ARC 所有权、block/retain cycle、NSError、线程与异步、CoreFoundation bridge、KVC/KVO、runtime/category/swizzling、Swift 混编、Auto Layout、列表滚动、UIKit 渲染、启动、内存、崩溃、网络缓存、性能诊断、静态风险巡检、新手 OC + UIKit 架构和从零编写保守安全代码。"
+description: "维护、审查、重构、现代化或调试 Objective-C iOS 项目。用于 .h/.m/.mm、UIKit、ARC 所有权、block/retain cycle、NSError、线程与异步、CoreFoundation bridge、KVC/KVO、runtime/category/swizzling、Swift 混编、Auto Layout、列表滚动、UIKit 渲染、启动、pre-main、动态库数量、内存、崩溃、crash log、崩溃日志符号化、dSYM、MetricKit、MXCrashDiagnostic、MXHangDiagnostic、EXC_BAD_ACCESS、野指针、Zombie、ASan、Malloc Scribble、Guard Malloc、OOM、Jetsam、FOOM、watchdog、0x8badf00d、网络缓存、性能诊断、静态风险巡检、新手 OC + UIKit 架构和从零编写保守安全代码。"
 ---
 
 # Objective-C iOS 维护与安全开发
@@ -96,14 +96,17 @@ objc-ios-maintenance/
 4. 如果涉及 completion、URLSession、GCD、NSOperation、取消或 UI 回调，读 `references/errors-async-threading.md`；涉及共享状态、死锁或乱序覆盖，再读 `references/concurrency-safety.md`。
 5. 如果涉及 REST、分页、缓存、弱网重试、重复请求或网络 owner，读 `references/networking-caching.md`。
 6. 如果涉及 CF/CoreGraphics/CoreText/Security 对象释放，读 `references/corefoundation-bridging.md`。
-7. 如果涉及崩溃治理、crash log、崩溃率、线上止血、集合 nil/越界、列表更新崩溃或崩溃分类，先读 `references/crash-prevention.md`，再按分类读取内存、线程、runtime、UIKit 或 CoreFoundation reference。
-8. 如果涉及 KVC/KVO、category、associated object、swizzling 或动态 selector，读 `references/runtime-kvo-categories.md`；涉及崩溃边界，再读 `references/crash-prevention.md`。
-9. 如果用户明确要求运行时崩溃兜底、防崩溃分类、完全消息转发、集合/KVO swizzling 止血，读 `references/runtime-crash-guard.md`。这是非默认方案，只用于历史包袱兜底。
-10. 如果涉及 Swift 混编、bridging header、生成的 `-Swift.h` 或 Swift 导入质量，读 `references/swift-interop.md`。
-11. 如果涉及 UIKit 生命周期、delegate/data source、cell 复用或旧页面维护，读 `references/legacy-uikit.md`。
-12. 如果涉及滚动掉帧、cell 复用、异步图片、高度缓存或 prefetch，读 `references/scrolling-performance.md`；涉及 Auto Layout/Masonry 动态布局，再读 `references/layout-performance.md`。
-13. 如果涉及圆角、阴影、mask、透明混合或 rasterize，读 `references/uikit-rendering-performance.md`。
-14. 如果涉及启动、首屏、`+load`、SDK 初始化或启动热路径，读 `references/startup-performance.md`。
+7. 如果涉及 `EXC_BAD_ACCESS`、`SIGSEGV`、`KERN_INVALID_ADDRESS`、`objc_msgSend` 崩溃、野指针、Zombie、Address Sanitizer/ASan、Malloc Scribble、Guard Malloc、use-after-free、double free、over-release、`assign` 对象或 `__unsafe_unretained`，读 `references/dangling-pointer-diagnostics.md`。
+8. 如果涉及 OOM、Jetsam、FOOM、memory warning、前台无 crash log 退出、App 被系统杀死、watchdog、`0x8badf00d`、启动/前后台切换超时或主线程长时间无响应，读 `references/oom-watchdog-diagnostics.md`。
+9. 如果涉及未符号化 crash log、崩溃日志符号化、dSYM、UUID 不匹配、`atos`、Xcode Organizer、第三方 SDK dSYM、MetricKit、`MXMetricManager`、`MXDiagnosticPayload`、`MXCrashDiagnostic` 或 `MXHangDiagnostic`，读 `references/crash-symbolication-metrickit.md`。
+10. 如果涉及崩溃治理、crash log、崩溃率、线上止血、集合 nil/越界、列表更新崩溃或崩溃分类，先读 `references/crash-prevention.md`，再按分类读取内存、线程、runtime、UIKit 或 CoreFoundation reference。
+11. 如果涉及 KVC/KVO、category、associated object、swizzling 或动态 selector，读 `references/runtime-kvo-categories.md`；涉及崩溃边界，再读 `references/crash-prevention.md`。
+12. 如果用户明确要求运行时崩溃兜底、防崩溃分类、完全消息转发、集合/KVO swizzling 止血，读 `references/runtime-crash-guard.md`。这是非默认方案，只用于历史包袱兜底。
+13. 如果涉及 Swift 混编、bridging header、生成的 `-Swift.h` 或 Swift 导入质量，读 `references/swift-interop.md`。
+14. 如果涉及 UIKit 生命周期、delegate/data source、cell 复用或旧页面维护，读 `references/legacy-uikit.md`。
+15. 如果涉及滚动掉帧、cell 复用、异步图片、高度缓存或 prefetch，读 `references/scrolling-performance.md`；涉及 Auto Layout/Masonry 动态布局，再读 `references/layout-performance.md`。
+16. 如果涉及圆角、阴影、mask、透明混合或 rasterize，读 `references/uikit-rendering-performance.md`。
+17. 如果涉及启动、首屏、pre-main、dyld、动态库数量、`+load` 统计、SDK 初始化或启动热路径，读 `references/startup-performance.md`。
 
 ## 引用资料路由
 
@@ -120,9 +123,12 @@ objc-ios-maintenance/
 - `references/uikit-rendering-performance.md`：UIKit 渲染性能、离屏渲染、圆角、阴影、mask、透明混合、`shouldRasterize`、列表滚动视觉效果优化。
 - `references/scrolling-performance.md`：UITableView/UICollectionView 滚动性能、cell 复用、复用标识符、预估行高、异步图片、图片预解码、约束复用、高度缓存、prefetch、列表刷新卡顿。
 - `references/layout-performance.md`：Auto Layout 性能、约束创建/更新、动态高度、Masonry `remakeConstraints`、frame 混用、约束冲突。
-- `references/startup-performance.md`：启动性能、`+load` / `+initialize`、`AppDelegate` / `SceneDelegate`、首屏、SDK 初始化、启动热路径瘦身。
+- `references/startup-performance.md`：启动性能、pre-main、dyld、动态库数量、`+load` / `+initialize`、`AppDelegate` / `SceneDelegate`、首屏、SDK 初始化、启动热路径瘦身。
 - `references/memory-leaks-performance.md`：内存上涨、页面不释放、图片内存、缓存、`autoreleasepool`、timer/display link/observer 生命周期。
 - `references/crash-prevention.md`：崩溃治理分层、分类矩阵、治理闭环、集合 nil/越界、类型校验、列表批量更新一致性、KVC/KVO 崩溃、动态 selector、全局防崩溃分类风险。
+- `references/crash-symbolication-metrickit.md`：崩溃日志符号化、dSYM/UUID 匹配、dSYM 归档、第三方 SDK 符号、MetricKit 接入、`MXCrashDiagnostic` / `MXHangDiagnostic` 和线上诊断闭环。
+- `references/dangling-pointer-diagnostics.md`：`EXC_BAD_ACCESS`、`SIGSEGV`、`objc_msgSend` 野指针崩溃、Zombie、ASan、Malloc Scribble、Guard Malloc、use-after-free、double free 和 CF/C/C++ 内存访问诊断。
+- `references/oom-watchdog-diagnostics.md`：OOM、Jetsam、FOOM、memory warning、内存峰值、缓存膨胀、watchdog、`0x8badf00d`、启动/前后台切换超时和主线程卡死诊断。
 - `references/concurrency-safety.md`：GCD、NSOperation、共享 mutable state、死锁、竞态、取消语义、异步结果时序、completion 队列契约。
 - `references/networking-caching.md`：NSURLSession、请求取消、重复请求合并、缓存 key、弱网重试、分页刷新、网络回调 UI 安全。
 - `references/performance-diagnostics.md`：Instruments、Core Animation、Leaks、Zombies、Main Thread Checker、静态风险巡检和性能优化记录。
@@ -286,7 +292,11 @@ __weak typeof(self) weakSelf = self;
 
 - 崩溃治理先分类再修复：数据边界、UIKit 状态一致性、生命周期、线程与异步、KVC/KVO/runtime、所有权桥接、底层 C/CF/C++ 和 OOM 要分开判断。
 - 每个高优先级崩溃都要有证据闭环：符号化栈、输入样本或状态路径、根因、最小修复、验证方式和残留风险。
-- 启动路径只保留首屏必须同步完成的工作；`+load` / `+initialize` 不做业务初始化、IO、数据库或大型 SDK 启动。
+- 线上 crash log 先验证 dSYM UUID 和符号化质量；未符号化或错符号的栈不能作为最终根因证据。
+- MetricKit 用来补充 crash、hang、exit、CPU、内存和启动趋势；它不能替代 dSYM、完整 crash log 和可复现路径。
+- 野指针和内存访问崩溃先选诊断工具再修：Objective-C 对象释放后收消息优先 Zombie，C/CF/C++ 越界或释放后访问优先 ASan，低频内存破坏再用 Malloc Scribble / Guard Malloc。
+- OOM/Jetsam/FOOM 和 watchdog 不是普通异常：先区分泄漏、峰值、缓存膨胀、系统内存终止和主线程无响应，再选择内存或卡顿诊断工具。
+- 启动路径先拆 pre-main、`didFinishLaunching`、首帧和可交互阶段；`+load` / `+initialize` 不做业务初始化、IO、数据库或大型 SDK 启动。
 - 内存问题先区分泄漏、峰值过高和缓存膨胀；用 Memory Graph / Allocations 验证，不要只靠猜。
 - 页面不释放优先检查 block、timer、display link、observer、KVO、delegate 和 associated object 的强引用链。
 - 服务端、缓存和配置输入进入 model 层前做类型收敛；集合构造过滤 nil，数组访问检查边界。
@@ -358,6 +368,9 @@ __weak typeof(self) weakSelf = self;
 - 启动：`+load` / `+initialize`、`didFinishLaunching`、首屏生命周期里是否有非必要同步重活？
 - 内存：页面是否释放，缓存是否有上限，图片是否按展示尺寸处理，批处理是否控制 autorelease 峰值？
 - 崩溃：是否先完成分类、证据、根因、修复、验证和残留风险闭环？集合 nil/越界、外部数据类型、批量更新一致性、动态 selector 签名是否安全？
+- 符号化：dSYM、UUID、第三方 framework 符号和 MetricKit 诊断链路是否完整？
+- 野指针：是否根据症状选择 Zombie、ASan、Malloc Scribble 或 Guard Malloc？是否从工具报告回查属性所有权、CF bridge、MRC、timer、observer、KVO 和异步取消？
+- OOM/Watchdog：是否区分泄漏、峰值、缓存膨胀、Jetsam、FOOM 和 `0x8badf00d`？是否收集内存曲线、JetsamEvent、会话标记、主线程栈和生命周期阶段？
 - 并发：共享状态是否受保护，异步结果是否防乱序覆盖，取消是否贯穿完整链路？
 - 网络：请求 owner、取消、去重、缓存 key、重试和分页状态是否清晰？
 - 布局：约束是否创建一次并复用，动态高度是否稳定，Masonry 是否避免高频 remake？
