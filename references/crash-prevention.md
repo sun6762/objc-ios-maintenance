@@ -1,6 +1,6 @@
 # 崩溃防护与边界处理
 
-当任务涉及 Objective-C 旧代码崩溃、数组越界、字典 nil、KVC/KVO 异常、unrecognized selector、table/collection 更新崩溃、主线程 UI、野指针或“防崩溃分类”时读取本文件。
+当任务涉及 Objective-C 旧代码崩溃、数组越界、字典 nil、KVC/KVO 异常、unrecognized selector、table/collection 更新崩溃、主线程 UI、野指针或“防崩溃分类”时读取本文件。若任务涉及未符号化 crash log、dSYM、UUID 不匹配、第三方 SDK 符号或 MetricKit，先读取 `references/crash-symbolication-metrickit.md`。若任务明确是 `EXC_BAD_ACCESS`、`objc_msgSend`、Zombie、ASan、Malloc Scribble 或 Guard Malloc 诊断，继续读取 `references/dangling-pointer-diagnostics.md`。若任务涉及 OOM、Jetsam、FOOM、memory warning、watchdog 或 `0x8badf00d`，读取 `references/oom-watchdog-diagnostics.md`。
 
 ## 快速目录
 
@@ -25,7 +25,7 @@
 
 崩溃治理不是单个“防崩溃工具”，而是一条从发现、归因、修复到验证的闭环。维护 Objective-C iOS 旧项目时，按下面顺序处理：
 
-1. 先拿证据：符号化崩溃日志、版本、设备、系统、线程栈、最近发布差异、用户路径和关键业务参数。
+1. 先拿证据：符号化崩溃日志、dSYM UUID 匹配、版本、设备、系统、线程栈、最近发布差异、用户路径、MetricKit 诊断和关键业务参数。
 2. 再做分类：判断崩溃属于数据边界、生命周期、线程、runtime、UIKit 状态一致性、内存所有权、底层 C/CF/C++ 或 OOM。
 3. 优先修源头：在 model/service/view model/view controller 的输入、状态和生命周期边界修复，不默认吞异常。
 4. 才做兜底：只有高频线上问题短期无法彻底修复时，才讨论白名单 runtime guard、灰度、日志和回滚。
@@ -40,15 +40,15 @@
 | 生命周期 | 页面退出后回调、timer/display link/observer 未释放 | 明确 owner，页面消失或 dealloc 取消任务、移除 observer、invalidate timer | Memory Graph、dealloc 日志、Leaks、Zombies |
 | 线程与异步 | 后台线程更新 UI、主线程死锁、旧请求覆盖新状态 | UIKit 回主线程；避免主线程 `dispatch_sync`；generation token 防乱序 | Main Thread Checker、线程栈、请求时序日志 |
 | KVC/KVO/runtime | undefined key、KVO remove 不平衡、unknown selector | key 白名单、static context、add/remove 状态记录、协议替代动态 selector | exception reason、selector/keyPath、observer 生命周期 |
-| 所有权与桥接 | 野指针、double free、CF 对象泄漏或重复释放 | ARC 属性修饰符、避免 `assign` 对象、Create/Copy/Get bridge 审查 | Zombies、Address Sanitizer、Malloc Scribble、崩溃地址 |
-| 底层与资源 | C/C++ 越界、OOM、内存破坏 | 边界检查、RAII/智能指针、降低峰值内存和缓存上限 | ASan/UBSan/TSan、Jetsam 日志、内存曲线 |
+| 所有权与桥接 | 野指针、double free、CF 对象泄漏或重复释放 | ARC 属性修饰符、避免 `assign` 对象、Create/Copy/Get bridge 审查 | `references/dangling-pointer-diagnostics.md`、Zombies、ASan、Malloc Scribble、崩溃地址 |
+| 底层与资源 | C/C++ 越界、OOM、内存破坏 | 边界检查、RAII/智能指针、降低峰值内存和缓存上限 | `references/crash-symbolication-metrickit.md`、`references/oom-watchdog-diagnostics.md`、ASan/UBSan/TSan、Jetsam 日志、内存曲线 |
 
 ## 治理闭环
 
 处理每个崩溃时，记录一条简短闭环：
 
 - **分类**：属于哪一类崩溃，为什么。
-- **证据**：崩溃栈、输入样本、生命周期路径、线程或工具数据。
+- **证据**：符号化崩溃栈、dSYM UUID、输入样本、生命周期路径、线程、MetricKit 或工具数据。
 - **根因**：哪个边界没有收敛，哪个状态不一致，或哪个所有权假设错误。
 - **修复**：最小改动位置，是否影响公开 `.h`、Swift 导入、调用方或 runtime 行为。
 - **验证**：测试、脚本扫描、手工复现、Instruments 或线上灰度指标。
@@ -278,7 +278,7 @@ OCMDispatchAsyncOnMainQueue(^{
 - 可 runtime 兜底：unknown selector。
 - 可 swizzle 止血但不推荐默认启用：集合越界、字典/数组 nil。
 - 可 swizzle 止血但高风险：KVO 不平衡。
-- 不可 runtime 兜底：野指针、C/C++ 崩溃、OOM、内存破坏。
+- 不可 runtime 兜底：野指针、C/C++ 崩溃、OOM、内存破坏、watchdog。野指针诊断读取 `references/dangling-pointer-diagnostics.md`；OOM/Jetsam/FOOM/watchdog 诊断读取 `references/oom-watchdog-diagnostics.md`。
 
 ## 审查清单
 
@@ -289,3 +289,5 @@ OCMDispatchAsyncOnMainQueue(^{
 - 动态 selector 是否检查响应和签名？
 - UI 更新是否保证在主线程，且页面仍处于可更新状态？
 - 是否避免用全局防崩溃 swizzling 掩盖真实问题？
+- 未符号化 crash log、dSYM/UUID 或 MetricKit 诊断是否进入 `references/crash-symbolication-metrickit.md`，而不是直接猜业务根因？
+- OOM/Jetsam/FOOM/watchdog 是否进入 `references/oom-watchdog-diagnostics.md`，而不是当作普通异常处理？

@@ -1,6 +1,6 @@
 # 性能诊断与静态巡检
 
-当任务涉及性能优化前的定位、Instruments、Core Animation 调试、Leaks、Zombies、Main Thread Checker、静态扫描或需要先找高风险 Objective-C 写法时读取本文件。
+当任务涉及性能优化前的定位、Instruments、Core Animation 调试、Leaks、Zombies、Main Thread Checker、MetricKit、静态扫描或需要先找高风险 Objective-C 写法时读取本文件。若任务聚焦未符号化崩溃、dSYM、UUID、MetricKit crash/hang 诊断，读取 `references/crash-symbolication-metrickit.md`。若任务聚焦 `EXC_BAD_ACCESS`、Zombie、ASan、Malloc Scribble、Guard Malloc 或野指针，读取 `references/dangling-pointer-diagnostics.md`。若任务聚焦 OOM、Jetsam、FOOM、watchdog、`0x8badf00d` 或系统终止，读取 `references/oom-watchdog-diagnostics.md`。
 
 ## 快速目录
 
@@ -30,7 +30,10 @@
 - Time Profiler：找主线程 CPU 热点、同步 IO、JSON 解析、富文本排版、Auto Layout 计算。
 - Allocations：看对象分配热点、峰值、短时间大量 autorelease 对象。
 - Leaks / Memory Graph：找真实泄漏和强引用链。
-- Zombies：定位野指针或过度释放。ARC 项目仍可能通过 CoreFoundation、unsafe 指针或旧代码触发。
+- Zombies：定位野指针或过度释放。ARC 项目仍可能通过 CoreFoundation、unsafe 指针或旧代码触发。具体诊断流程见 `references/dangling-pointer-diagnostics.md`。
+- Address Sanitizer / Malloc Scribble / Guard Malloc：定位 use-after-free、double free、buffer overflow 和内存破坏。不要和性能数据采集混用。
+- Memory Gauge / Allocations / VM Tracker：观察 OOM、Jetsam、FOOM 的内存水位、分配热点、虚拟内存和瞬时峰值。具体流程见 `references/oom-watchdog-diagnostics.md`。
+- MetricKit：聚合线上 crash、hang、CPU、内存、exit、启动和响应性趋势。涉及 dSYM、`MXCrashDiagnostic` 或 `MXHangDiagnostic` 时读 `references/crash-symbolication-metrickit.md`。
 - Core Animation：看 FPS、offscreen rendering、blended layers、misaligned images。
 - Network：确认首屏网络等待和重复请求。
 
@@ -117,5 +120,8 @@ python3 scripts/test_scan_objc_risks.py
 - 是否用 Instruments 或埋点验证瓶颈，而不是直接猜？
 - 是否一次只验证一个主要假设？
 - 是否区分真实泄漏、峰值过高和缓存膨胀？
+- 未符号化崩溃、dSYM 或 MetricKit 诊断是否读取了 `references/crash-symbolication-metrickit.md`？
+- 野指针诊断是否读取了 `references/dangling-pointer-diagnostics.md`，并区分 Zombie、ASan、Malloc Scribble 和 Guard Malloc 的适用场景？
+- OOM/Jetsam/FOOM/watchdog 是否读取了 `references/oom-watchdog-diagnostics.md`，并区分内存压力和主线程无响应？
 - 静态扫描结果是否经过人工判断，没有机械改所有命中？
 - 性能改动是否记录了对比数据和剩余风险？
