@@ -1,6 +1,6 @@
 # 内存、泄漏与对象生命周期性能
 
-当任务涉及内存上涨、页面不释放、图片内存、缓存、循环引用、`autoreleasepool`、Core Graphics/CF 对象释放、timer/display link 或内存警告时读取本文件。
+当任务涉及内存上涨、页面不释放、图片内存、缓存、循环引用、`autoreleasepool`、Core Graphics/CF 对象释放、timer/display link 或内存警告时读取本文件。若任务涉及 OOM、Jetsam、FOOM、前台无 crash log 退出或系统因内存压力终止 App，继续读取 `references/oom-watchdog-diagnostics.md`。
 
 ## 快速目录
 
@@ -22,6 +22,8 @@
 - 缓存膨胀：缓存符合预期地持有对象，但没有上限或失效策略。
 
 用 Instruments / Allocations / Leaks / Memory Graph 先看是哪一类。不要把所有内存上涨都当成 retain cycle。
+
+如果表现为系统直接杀进程、前台无 crash log 退出或 JetsamEvent，按 `references/oom-watchdog-diagnostics.md` 先区分 OOM、Jetsam、FOOM、泄漏、峰值和缓存膨胀。
 
 ## 页面不释放
 
@@ -138,3 +140,4 @@ dispatch_async(self.processingQueue, ^{
 - 批量处理是否有局部 `@autoreleasepool` 控制峰值？
 - CF/Core Graphics 对象是否只有一个明确 owner 负责释放？
 - 内存优化是否用 Allocations / Leaks / Memory Graph 验证？
+- OOM/Jetsam/FOOM 是否读取了 `references/oom-watchdog-diagnostics.md`，并避免把所有内存问题都当成泄漏？
