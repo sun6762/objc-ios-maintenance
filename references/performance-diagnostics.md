@@ -83,13 +83,14 @@
 
 - `scripts/scan_objc_risks.py`
 
-它用于扫描 Objective-C 文件中的高风险模式，例如 KVO、swizzling、timer、同步 IO、`reloadData`、`shouldRasterize`、`masksToBounds`、动态 selector 等。
+它用于扫描 Objective-C 文件和常见 Xcode 配置文件中的高风险模式，例如 KVO、swizzling、timer、同步 IO、`reloadData`、`shouldRasterize`、`masksToBounds`、动态 selector、`OTHER_LDFLAGS`、递归 Header Search Paths、PCH、Pod/SPM 混用和 `project.pbxproj` 冲突标记等。
 
 示例：
 
 ```bash
 python3 scripts/scan_objc_risks.py /path/to/YourProject
 python3 scripts/scan_objc_risks.py /path/to/YourProject --category rendering
+python3 scripts/scan_objc_risks.py /path/to/YourProject --category build
 python3 scripts/scan_objc_risks.py /path/to/YourProject --min-level warning
 python3 scripts/scan_objc_risks.py /path/to/YourProject --format json --max-findings 50
 python3 scripts/scan_objc_risks.py /path/to/YourProject --fail-on-finding

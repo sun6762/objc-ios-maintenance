@@ -15,7 +15,23 @@ import sys
 from typing import Iterable
 
 
-SOURCE_EXTENSIONS = {".h", ".m", ".mm"}
+SCANNABLE_EXTENSIONS = {
+    ".h",
+    ".m",
+    ".mm",
+    ".pbxproj",
+    ".xcconfig",
+    ".xcscheme",
+    ".podspec",
+    ".modulemap",
+    ".pch",
+}
+SCANNABLE_FILE_NAMES = {
+    "Podfile",
+    "Podfile.lock",
+    "Package.swift",
+    "Package.resolved",
+}
 DEFAULT_EXCLUDED_DIRS = {
     ".git",
     "Pods",
@@ -36,9 +52,30 @@ class Rule:
     pattern: re.Pattern[str]
     message: str
     window: int = 1
+    file_pattern: re.Pattern[str] | None = None
 
 
 RULES = [
+    Rule("build", "error", re.compile(r"^(?:<<<<<<<|=======|>>>>>>>)"), "项目或配置文件仍有合并冲突标记，会导致 Xcode/CocoaPods/SPM 配置解析失败。"),
+    Rule("build", "warning", re.compile(r"@implementation\s+[A-Za-z_]\w*\s*\([^)]+\)"), "这是 Objective-C category。若它位于静态库、Pod 或闭源 .a 中，确认最终 App target 的 OTHER_LDFLAGS 包含 -ObjC；个别纯 category 静态库可能需要精确 -force_load。", window=2),
+    Rule("build", "warning", re.compile(r"OTHER_LDFLAGS\s*=\s*(?!.*\$\((?:inherited|INHERITED)\))"), "OTHER_LDFLAGS 缺少 $(inherited) 时容易覆盖 CocoaPods/xcconfig 注入的 -ObjC、framework 或 library 标记。"),
+    Rule("build", "info", re.compile(r"OTHER_LDFLAGS\s*=.*-ObjC"), "发现 -ObjC；确认只在需要加载 Objective-C category 的 App/Extension 最终链接 target 上设置，并避免多处漂移。"),
+    Rule("build", "warning", re.compile(r"OTHER_LDFLAGS\s*=.*-all_load"), "-all_load 会加载所有静态库对象文件，容易引入重复符号和体积膨胀；优先使用 -ObjC 或对特定库 -force_load。"),
+    Rule("build", "info", re.compile(r"OTHER_LDFLAGS\s*=.*-force_load"), "-force_load 应精确绑定到确实需要完整加载的静态库路径，并记录原因，避免变成全局兜底。"),
+    Rule("build", "warning", re.compile(r"\bvendored_libraries\b.*\.a\b"), "Podspec 仍暴露闭源 .a。迁移到 xcframework 前需确认 slice、bitcode/BCSymbolMaps、dSYM、modulemap、资源和 license。", window=3),
+    Rule("build", "info", re.compile(r"\bvendored_frameworks\b.*\.xcframework\b"), "发现 xcframework；确认每个 slice、Headers/Modules、dSYM/BCSymbolMaps 和资源 bundle 都随发布产物归档。", window=3),
+    Rule("build", "info", re.compile(r"^\s*use_frameworks!"), "CocoaPods use_frameworks! 会影响静态/动态链接、Swift module、资源 bundle 和启动成本；与 SPM 混用时要统一 linkage 策略。"),
+    Rule("build", "info", re.compile(r"\buse_modular_headers!|:modular_headers\s*=>\s*true"), "modular headers 会改变头文件可见性和 include 方式；迁移时检查 umbrella header、modulemap 和私有头泄漏。"),
+    Rule("build", "info", re.compile(r"^\s*COCOAPODS:\s*[0-9]+(?:\.[0-9]+)*"), "Podfile.lock 锁定 CocoaPods 版本；团队应统一安装方式，并评估老版本与 Xcode、SPM、静态链接策略的兼容性。"),
+    Rule("build", "info", re.compile(r"\.package\s*\("), "发现 Swift Package 依赖；与 CocoaPods/手动二进制混用时确认重复符号、资源 bundle、最低系统版本和构建缓存策略。", window=2),
+    Rule("build", "warning", re.compile(r"(?:HEADER_SEARCH_PATHS|FRAMEWORK_SEARCH_PATHS|LIBRARY_SEARCH_PATHS)\s*=\s*(?!.*\$\((?:inherited|INHERITED)\))"), "搜索路径配置缺少 $(inherited) 容易覆盖 Pods、SPM 或上层 xcconfig 的路径。"),
+    Rule("build", "warning", re.compile(r"HEADER_SEARCH_PATHS\s*=.*(?:/\*\*|\brecursive\b)"), "递归 Header Search Paths 会扩大头文件依赖图，增加误 include、模块冲突和编译时间。"),
+    Rule("build", "warning", re.compile(r"ALWAYS_SEARCH_USER_PATHS\s*=\s*YES"), "ALWAYS_SEARCH_USER_PATHS=YES 是旧工程常见遗留项，可能让头文件解析顺序不可控。"),
+    Rule("build", "info", re.compile(r"GCC_PREFIX_HEADER\s*="), "发现 PCH 配置；PCH 只应放稳定系统/基础头，不要放业务头、重型 SDK 或频繁变化的 header。"),
+    Rule("build", "warning", re.compile(r"#\s*import\s+[\"<].+[\">]"), "PCH 中的 import 会放大编译依赖；确认只包含稳定、低变化频率的公共头。", file_pattern=re.compile(r"\.pch$")),
+    Rule("build", "info", re.compile(r"CLANG_ENABLE_MODULES\s*=\s*NO"), "关闭 Clang modules 会影响模块化和 Swift/ObjC 混编体验；迁移 umbrella header/modulemap 时需重新评估。"),
+    Rule("build", "info", re.compile(r"DEFINES_MODULE\s*=\s*YES"), "发现可导入 module；确认 public/umbrella header 只暴露稳定 API，不泄漏私有头。"),
+    Rule("build", "info", re.compile(r"(?:PRODUCT_BUNDLE_IDENTIFIER|DEVELOPMENT_TEAM|PROVISIONING_PROFILE_SPECIFIER|CODE_SIGN_STYLE)\s*="), "签名或 bundle 配置可能在多 target/configuration 间漂移；合并冲突后要用 xcodebuild -showBuildSettings 对比。"),
     Rule("threading", "error", re.compile(r"dispatch_sync\s*\(\s*dispatch_get_main_queue\s*\("), "主线程调用时会死锁，UI 更新通常改为 dispatch_async 或重新设计同步依赖。"),
     Rule("threading", "warning", re.compile(r"completionHandler\s*:\s*\^.*\b(?:tableView|collectionView|navigationController|label|imageView|view)\b"), "URLSession completion 默认不在主线程，直接访问 UIKit 前需要切回主队列。", window=8),
     Rule("threading", "warning", re.compile(r"performSelector\s*:"), "动态 selector 需要确认 respondsToSelector 和方法签名，优先使用协议或类型化调用。", window=3),
@@ -100,16 +137,20 @@ class Finding:
     text: str
 
 
-def iter_source_files(root: Path, include_tests: bool) -> Iterable[Path]:
+def is_scannable_file(path: Path) -> bool:
+    return path.suffix in SCANNABLE_EXTENSIONS or path.name in SCANNABLE_FILE_NAMES
+
+
+def iter_scannable_files(root: Path, include_tests: bool) -> Iterable[Path]:
     if root.is_file():
-        if root.suffix in SOURCE_EXTENSIONS:
+        if is_scannable_file(root):
             yield root
         return
 
     for path in root.rglob("*"):
         if path.is_dir():
             continue
-        if path.suffix not in SOURCE_EXTENSIONS:
+        if not is_scannable_file(path):
             continue
         parts = set(path.parts)
         if parts & DEFAULT_EXCLUDED_DIRS:
@@ -125,6 +166,8 @@ def strip_block_comments(lines: list[str]) -> list[str]:
     for line in lines:
         result = []
         index = 0
+        string_delimiter: str | None = None
+        escaped = False
         while index < len(line):
             if in_block_comment:
                 end = line.find("*/", index)
@@ -135,19 +178,34 @@ def strip_block_comments(lines: list[str]) -> list[str]:
                 index = end + 2
                 continue
 
-            start = line.find("/*", index)
-            line_comment = line.find("//", index)
-            if line_comment != -1 and (start == -1 or line_comment < start):
-                result.append(line[index:line_comment])
+            char = line[index]
+            if string_delimiter:
+                result.append(char)
+                if escaped:
+                    escaped = False
+                elif char == "\\":
+                    escaped = True
+                elif char == string_delimiter:
+                    string_delimiter = None
+                index += 1
+                continue
+
+            if char in {'"', "'"}:
+                string_delimiter = char
+                result.append(char)
+                index += 1
+                continue
+
+            if line.startswith("//", index):
                 index = len(line)
                 continue
-            if start == -1:
-                result.append(line[index:])
-                index = len(line)
+            if line.startswith("/*", index):
+                in_block_comment = True
+                index += 2
                 continue
-            result.append(line[index:start])
-            in_block_comment = True
-            index = start + 2
+
+            result.append(char)
+            index += 1
         cleaned.append("".join(result))
     return cleaned
 
@@ -179,6 +237,8 @@ def scan_file(path: Path, rules: list[Rule], min_level: str) -> Iterable[Finding
         for rule in rules:
             if LEVEL_ORDER[rule.level] < min_order:
                 continue
+            if rule.file_pattern and not rule.file_pattern.search(path.name):
+                continue
             search_text, end_line = normalized_window(lines, line_number - 1, rule.window)
             if not search_text:
                 continue
@@ -197,8 +257,8 @@ def select_rules(category: str | None) -> list[Rule]:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="扫描 Objective-C iOS 项目中的性能、崩溃和运行时风险模式。")
-    parser.add_argument("path", type=Path, help="要扫描的项目目录或单个 .h/.m/.mm 文件")
+    parser = argparse.ArgumentParser(description="扫描 Objective-C iOS 项目中的性能、崩溃、运行时和构建配置风险模式。")
+    parser.add_argument("path", type=Path, help="要扫描的项目目录或单个源码/配置文件")
     parser.add_argument("--category", choices=sorted({rule.category for rule in RULES}), help="只扫描指定分类")
     parser.add_argument("--min-level", choices=sorted(LEVEL_ORDER, key=LEVEL_ORDER.get), default="info", help="最低输出级别")
     parser.add_argument("--format", choices=("text", "json"), default="text", help="输出格式")
@@ -251,8 +311,8 @@ def main(argv: list[str]) -> int:
 
     rules = select_rules(args.category)
     findings: list[Finding] = []
-    for source_file in iter_source_files(root, include_tests=args.include_tests):
-        findings.extend(scan_file(source_file, rules, args.min_level))
+    for scannable_file in iter_scannable_files(root, include_tests=args.include_tests):
+        findings.extend(scan_file(scannable_file, rules, args.min_level))
         if args.max_findings > 0 and len(findings) >= args.max_findings:
             findings = findings[:args.max_findings]
             break

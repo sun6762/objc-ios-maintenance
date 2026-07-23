@@ -1,4 +1,4 @@
 interface:
   display_name: "Objective-C iOS 维护"
-  short_description: "维护 OC iOS 项目，治理崩溃、dSYM、MetricKit、OOM、野指针和性能风险"
-  default_prompt: "使用 $objc-ios-maintenance 审查或编写这段 Objective-C iOS 代码，关注崩溃治理、dSYM/MetricKit、OOM/watchdog、野指针诊断、启动、架构、性能、内存和线程风险。"
+  short_description: "维护 OC iOS 项目，治理崩溃、依赖构建、dSYM、OOM、野指针和性能风险"
+  default_prompt: "使用 $objc-ios-maintenance 审查或编写这段 Objective-C iOS 代码，关注崩溃治理、Xcode/CocoaPods/SPM 构建配置、静态库 category 链接、dSYM/MetricKit、OOM/watchdog、野指针诊断、启动、架构、性能、内存和线程风险。"

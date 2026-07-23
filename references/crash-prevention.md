@@ -1,6 +1,6 @@
 # 崩溃防护与边界处理
 
-当任务涉及 Objective-C 旧代码崩溃、数组越界、字典 nil、KVC/KVO 异常、unrecognized selector、table/collection 更新崩溃、主线程 UI、野指针或“防崩溃分类”时读取本文件。若任务涉及未符号化 crash log、dSYM、UUID 不匹配、第三方 SDK 符号或 MetricKit，先读取 `references/crash-symbolication-metrickit.md`。若任务明确是 `EXC_BAD_ACCESS`、`objc_msgSend`、Zombie、ASan、Malloc Scribble 或 Guard Malloc 诊断，继续读取 `references/dangling-pointer-diagnostics.md`。若任务涉及 OOM、Jetsam、FOOM、memory warning、watchdog 或 `0x8badf00d`，读取 `references/oom-watchdog-diagnostics.md`。
+当任务涉及 Objective-C 旧代码崩溃、数组越界、字典 nil、KVC/KVO 异常、unrecognized selector、table/collection 更新崩溃、主线程 UI、野指针或“防崩溃分类”时读取本文件。若 `unrecognized selector` 指向静态库/Pod/闭源 `.a` 中的 category 方法，继续读取 `references/build-system-dependencies.md`。若任务涉及未符号化 crash log、dSYM、UUID 不匹配、第三方 SDK 符号或 MetricKit，先读取 `references/crash-symbolication-metrickit.md`。若任务明确是 `EXC_BAD_ACCESS`、`objc_msgSend`、Zombie、ASan、Malloc Scribble 或 Guard Malloc 诊断，继续读取 `references/dangling-pointer-diagnostics.md`。若任务涉及 OOM、Jetsam、FOOM、memory warning、watchdog 或 `0x8badf00d`，读取 `references/oom-watchdog-diagnostics.md`。
 
 ## 快速目录
 
@@ -40,6 +40,7 @@
 | 生命周期 | 页面退出后回调、timer/display link/observer 未释放 | 明确 owner，页面消失或 dealloc 取消任务、移除 observer、invalidate timer | Memory Graph、dealloc 日志、Leaks、Zombies |
 | 线程与异步 | 后台线程更新 UI、主线程死锁、旧请求覆盖新状态 | UIKit 回主线程；避免主线程 `dispatch_sync`；generation token 防乱序 | Main Thread Checker、线程栈、请求时序日志 |
 | KVC/KVO/runtime | undefined key、KVO remove 不平衡、unknown selector | key 白名单、static context、add/remove 状态记录、协议替代动态 selector | exception reason、selector/keyPath、observer 生命周期 |
+| 静态库 category 链接 | Release/Archive 才出现 category selector 的 `unrecognized selector` | 最终 target 保留 `$(inherited)` 和必要 `-ObjC`，必要时精确 `-force_load` | `references/build-system-dependencies.md`、`OTHER_LDFLAGS`、`nm`、Archive smoke test |
 | 所有权与桥接 | 野指针、double free、CF 对象泄漏或重复释放 | ARC 属性修饰符、避免 `assign` 对象、Create/Copy/Get bridge 审查 | `references/dangling-pointer-diagnostics.md`、Zombies、ASan、Malloc Scribble、崩溃地址 |
 | 底层与资源 | C/C++ 越界、OOM、内存破坏 | 边界检查、RAII/智能指针、降低峰值内存和缓存上限 | `references/crash-symbolication-metrickit.md`、`references/oom-watchdog-diagnostics.md`、ASan/UBSan/TSan、Jetsam 日志、内存曲线 |
 

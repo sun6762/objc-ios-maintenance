@@ -2,12 +2,13 @@
 
 一个面向 Objective-C + UIKit 项目的 Agent Skill，可用于 Codex 和 Claude Code，帮助维护、审查、重构、调试和编写更安全的 OC iOS 代码。
 
-它重点关注旧项目里最容易出问题的地方：ARC 所有权、循环引用、KVO/KVC、Swift 混编、UIKit 性能、列表滚动、渲染卡顿、网络异步、内存泄漏、野指针诊断、崩溃日志符号化、dSYM/MetricKit、OOM/Jetsam/watchdog、pre-main 启动拆解和崩溃边界。
+它重点关注旧项目里最容易出问题的地方：ARC 所有权、循环引用、KVO/KVC、Swift 混编、Xcode 工程与依赖配置、静态库/Pod category 符号裁剪、`-ObjC` / `-force_load`、CocoaPods/SPM 混用、闭源 `.a` 到 `xcframework` 迁移、头文件/PCH/modulemap、编译速度、UIKit 性能、列表滚动、渲染卡顿、网络异步、内存泄漏、野指针诊断、崩溃日志符号化、dSYM/MetricKit、OOM/Jetsam/watchdog、pre-main 启动拆解和崩溃边界。
 
 ## 适合场景
 
 - 维护老 Objective-C iOS 项目。
 - 审查 `.h`、`.m`、`.mm` 中的内存、线程、崩溃和性能风险。
+- 治理 Xcode 工程、`.xcconfig`、CocoaPods、SPM、静态库、闭源二进制、modulemap/PCH 和编译速度问题。
 - 优化 UIKit 页面、列表、cell 复用、Auto Layout、渲染和启动性能。
 - 处理 retain cycle、block capture、timer、observer、delegate、KVO/KVC 等常见坑。
 - 改善 Objective-C 与 Swift 混编边界。
@@ -20,6 +21,7 @@
 - **UIKit 性能**：离屏渲染、圆角、阴影、mask、透明混合、`shouldRasterize`、cell 复用、滚动掉帧、pre-main/`+load`/动态库启动拆解。
 - **异步与线程**：`NSError **`、completion handler、GCD、NSOperation、NSURLSession、主线程 UI 更新。
 - **Swift 混编**：bridging header、module、生成的 `-Swift.h`、nullability、generics、`NS_SWIFT_NAME`、`NS_REFINED_FOR_SWIFT`。
+- **构建系统与依赖**：`project.pbxproj` 冲突、target/scheme 配置漂移、`.xcconfig` 分层、CocoaPods/SPM 混用、静态库 category 符号裁剪、`-ObjC` / `-force_load`、闭源 `.a` 到 `xcframework`、PCH/modulemap 和编译速度治理。
 - **诊断辅助**：提供 Objective-C 风险巡检脚本，帮助快速发现需要人工 review 的代码线索。
 - **新手安全层**：当用户经验不明确或从零写功能时，默认采用保守 MVC + MVVM-lite 分层，避免 runtime/swizzling/manual KVO 等高风险方案。
 
@@ -103,6 +105,7 @@ objc-ios-maintenance/
 │   ├── scrolling-performance.md
 │   ├── uikit-rendering-performance.md
 │   ├── crash-symbolication-metrickit.md
+│   ├── build-system-dependencies.md
 │   ├── dangling-pointer-diagnostics.md
 │   ├── oom-watchdog-diagnostics.md
 │   ├── runtime-crash-guard.md
@@ -121,6 +124,7 @@ objc-ios-maintenance/
 ```bash
 python3 scripts/scan_objc_risks.py /path/to/YourProject
 python3 scripts/scan_objc_risks.py /path/to/YourProject --category rendering
+python3 scripts/scan_objc_risks.py /path/to/YourProject --category build
 python3 scripts/scan_objc_risks.py /path/to/YourProject --min-level warning
 python3 scripts/scan_objc_risks.py /path/to/YourProject --format json --max-findings 50
 ```

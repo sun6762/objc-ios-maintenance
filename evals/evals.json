@@ -115,6 +115,24 @@
         "明确新手默认不使用全局 runtime crash guard、method swizzling、manual KVO、heavy associated object 或 @try/@catch 吞异常。",
         "给出验证方式：空数据、错误态、慢网、快速进出页面、快速滚动、主线程检查和内存释放检查。"
       ]
+    },
+    {
+      "id": 8,
+      "name": "build-system-dependency-governance",
+      "prompt": "使用 $objc-ios-maintenance 审查一个 Objective-C 老项目的构建问题：静态库/Pod 中 category 方法线上 unrecognized selector，project.pbxproj 经常冲突，target/scheme 和 xcconfig 配置漂移，CocoaPods 版本很旧并和 SPM 混用，闭源 .a 想迁移 xcframework，PCH/头文件依赖导致全量编译 20 分钟。请给出治理顺序和验证方式。",
+      "expected_output": "一个构建系统和依赖治理方案，优先定位 category 链接证据，收敛 pbxproj/xcconfig 漂移，谨慎处理 Pods/SPM/二进制迁移，并用 build settings、Archive 和构建耗时基线验证。",
+      "assertions": [
+        "要求先确认 unrecognized selector 是否来自静态库、Pod 或闭源 .a 中的 category，并检查最终 App/Extension target 的 OTHER_LDFLAGS。",
+        "要求保留 $(inherited)，优先使用 -ObjC，只在有证据的单个静态库上精确 -force_load，并避免全局 -all_load。",
+        "要求处理 project.pbxproj 冲突后运行 plutil -lint、xcodebuild -list 和关键 target/configuration 的 -showBuildSettings。",
+        "要求用分层 .xcconfig 收敛 Debug/Release、App/Extension、Podfile post_install 和 Xcode UI 中重复或漂移的 build setting。",
+        "要求 CocoaPods 版本由 Bundler/CI 固定，升级先做 pod install 最小 diff，不全量 pod update。",
+        "要求盘点 CocoaPods、SPM 和手动二进制的唯一 owner，检查重复符号、资源 bundle、module 名和最低系统版本冲突。",
+        "要求闭源 .a 迁移 xcframework 时验证 device/simulator slice、headers、modulemap/umbrella header、dSYM/BCSymbolMaps、资源和 license。",
+        "要求治理 PCH、公开 .h import、递归 Header Search Paths、umbrella header private 泄漏和 script phase input/output files。",
+        "要求用 xcodebuild -showBuildTimingSummary 建立编译耗时基线，并记录优化前后环境和结果。",
+        "说明 scripts/scan_objc_risks.py --category build 的输出只是人工 review 线索，不是确定缺陷。"
+      ]
     }
   ]
 }

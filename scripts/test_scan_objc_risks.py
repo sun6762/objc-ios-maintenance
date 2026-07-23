@@ -70,9 +70,60 @@ def write_fixture(project: Path) -> None:
         }
 
         @end
+
+        @implementation NSString (FeedFormatting)
+        - (NSString *)ocm_feed_trimmedTitle {
+            return [self stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+        }
+        @end
         """
     ).strip()
     (project / "FeedController.m").write_text(source, encoding="utf-8")
+
+    xcodeproj = project / "App.xcodeproj"
+    xcodeproj.mkdir()
+    (xcodeproj / "project.pbxproj").write_text(
+        textwrap.dedent(
+            """
+            <<<<<<< HEAD
+            OTHER_LDFLAGS = "-ObjC";
+            =======
+            OTHER_LDFLAGS = "-all_load";
+            >>>>>>> feature/build
+            HEADER_SEARCH_PATHS = "$(SRCROOT)/Vendor/**";
+            ALWAYS_SEARCH_USER_PATHS = YES;
+            GCC_PREFIX_HEADER = App/App-Prefix.pch;
+            CLANG_ENABLE_MODULES = NO;
+            PRODUCT_BUNDLE_IDENTIFIER = com.example.app;
+            """
+        ).strip(),
+        encoding="utf-8",
+    )
+
+    (project / "App.xcconfig").write_text(
+        'FRAMEWORK_SEARCH_PATHS = "$(PROJECT_DIR)/Vendor"\n',
+        encoding="utf-8",
+    )
+    (project / "App-Prefix.pch").write_text(
+        '#import <UIKit/UIKit.h>\n#import "LegacyBusinessHeader.h"\n',
+        encoding="utf-8",
+    )
+    (project / "Podfile").write_text(
+        "use_frameworks! :linkage => :static\nuse_modular_headers!\n",
+        encoding="utf-8",
+    )
+    (project / "Podfile.lock").write_text(
+        "COCOAPODS: 1.8.4\n",
+        encoding="utf-8",
+    )
+    (project / "LegacySDK.podspec").write_text(
+        "s.vendored_libraries = 'libLegacySDK.a'\ns.vendored_frameworks = 'ModernSDK.xcframework'\n",
+        encoding="utf-8",
+    )
+    (project / "Package.swift").write_text(
+        "let package = Package(dependencies: [.package(url: \"https://example.com/lib.git\", from: \"1.0.0\")])\n",
+        encoding="utf-8",
+    )
 
 
 def assert_contains(output: str, needle: str) -> None:
@@ -102,6 +153,15 @@ def main() -> int:
         assert_contains(text_result.stdout, "向字典写入 nil key/value 会崩溃")
         assert_contains(text_result.stdout, "数组下标访问需要边界保护")
         assert_contains(text_result.stdout, "列表局部更新必须保证数据源")
+        assert_contains(text_result.stdout, "项目或配置文件仍有合并冲突标记")
+        assert_contains(text_result.stdout, "这是 Objective-C category")
+        assert_contains(text_result.stdout, "OTHER_LDFLAGS 缺少 $(inherited)")
+        assert_contains(text_result.stdout, "-all_load 会加载所有静态库对象文件")
+        assert_contains(text_result.stdout, "递归 Header Search Paths")
+        assert_contains(text_result.stdout, "ALWAYS_SEARCH_USER_PATHS=YES")
+        assert_contains(text_result.stdout, "PCH 中的 import 会放大编译依赖")
+        assert_contains(text_result.stdout, "搜索路径配置缺少 $(inherited)")
+        assert_contains(text_result.stdout, "Podspec 仍暴露闭源 .a")
 
         json_result = run_scan(project, "--format", "json", "--category", "runtime")
         if json_result.returncode != 0:
@@ -116,6 +176,13 @@ def main() -> int:
         crash_payload = json.loads(crash_result.stdout)
         if crash_payload["count"] < 4:
             raise AssertionError("JSON 输出应包含新增 crash 命中")
+
+        build_result = run_scan(project, "--format", "json", "--category", "build")
+        if build_result.returncode != 0:
+            raise AssertionError(build_result.stderr)
+        build_payload = json.loads(build_result.stdout)
+        if build_payload["count"] < 10:
+            raise AssertionError("JSON 输出应包含 build 配置命中")
 
         failing_result = run_scan(project, "--min-level", "warning", "--fail-on-finding")
         if failing_result.returncode != 1:

@@ -1,6 +1,6 @@
 # 运行时、KVC、KVO、分类与方法交换
 
-当任务涉及动态 selector、KVC/KVO、category 方法、associated object 或 method swizzling 时读取本文件。
+当任务涉及动态 selector、KVC/KVO、category 方法、associated object 或 method swizzling 时读取本文件。若 category 方法来自静态库、Pod 或闭源 `.a`，并在线上表现为 `unrecognized selector`，继续读取 `references/build-system-dependencies.md` 检查 `-ObjC`、`-force_load` 和最终 target 链接配置。
 
 ## KVC 边界
 
@@ -86,6 +86,8 @@ category 不能添加 ivar。必要时使用 associated object，并使用 stati
 static void *ACMEStateKey = &ACMEStateKey;
 objc_setAssociatedObject(self, ACMEStateKey, state, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
 ```
+
+如果 category 位于静态库、Pod 或闭源 `.a`，还要检查最终 App/Extension target 的链接设置。category 方法符号可能因静态库 object file 未被加载而消失，Release 或 Archive 包才触发 `unrecognized selector`。这类问题优先按 `references/build-system-dependencies.md` 排查 `OTHER_LDFLAGS`、`$(inherited)`、`-ObjC` 和精确 `-force_load`。
 
 ## 方法交换（Method Swizzling）
 
